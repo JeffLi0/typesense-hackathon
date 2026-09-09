@@ -40,14 +40,11 @@ export default function CandidateGrid({ results, onSelect }) {
                 {cost ? (
                   <>
                     <span className="candidate__from">
-                      from <strong>{money(cost.cheapest)}</strong>
+                      from <strong>{money(cost.cheapest.cost.amount)}</strong>
                     </span>
-                    {cost.saving > 0.5 && (
-                      <span className="candidate__save">save {money(cost.saving)}</span>
-                    )}
                   </>
                 ) : (
-                  <span className="candidate__from">no pricing available</span>
+                  <span className="candidate__from">not carried</span>
                 )}
               </div>
             </button>

@@ -103,7 +103,9 @@ export default function ResultStage({ result, alternatives, onSelect, isTopMatch
                     >
                       <span className="altrow__name">{alt.name}</span>
                       <span className="altrow__cost">
-                        {altCost ? `from ${money(altCost.cheapest)}` : 'no pricing'}
+                        {altCost
+                          ? `from ${money(altCost.cheapest.cost.amount)}`
+                          : 'no price'}
                       </span>
                       {p != null && <span className="altrow__pct">{p}%</span>}
                     </button>
@@ -125,7 +127,15 @@ export default function ResultStage({ result, alternatives, onSelect, isTopMatch
           </h2>
 
           {medications.length === 0 ? (
-            <NoMedications name={name} hasTreatments={treatments.length > 0} />
+            <NoMedications
+              name={name}
+              hasTreatments={treatments.length > 0}
+              // The drug dataset covers far fewer conditions than the symptom
+              // one, so a close match often *is* priced. Offer it rather than
+              // reordering results and contradicting the match percentages.
+              alternative={alternatives.find((a) => a.medications.length > 0)}
+              onSelect={onSelect}
+            />
           ) : (
             <div className="meds">
               {visible.map((med, i) => (
@@ -157,7 +167,8 @@ export default function ResultStage({ result, alternatives, onSelect, isTopMatch
  * so a match with no drug data is normal rather than an error. Say that plainly
  * instead of leaving a blank column.
  */
-function NoMedications({ name, hasTreatments }) {
+function NoMedications({ name, hasTreatments, alternative, onSelect }) {
+  const altCost = alternative ? costSummary(alternative.medications) : null;
   return (
     <div className="nomeds">
       <svg className="nomeds__icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -172,6 +183,19 @@ function NoMedications({ name, hasTreatments }) {
         prescription at all.
         {hasTreatments && ' The treatment approach is on the left.'}
       </p>
+
+      {alternative && (
+        <button type="button" className="nomeds__jump" onClick={() => onSelect(alternative.id)}>
+          <span>
+            <strong>{alternative.name}</strong> matched too, and we can price it
+          </span>
+          <span className="nomeds__jumpmeta">
+            {alternative.medications.length} option
+            {alternative.medications.length === 1 ? '' : 's'}
+            {altCost ? ` from ${money(altCost.cheapest.cost.amount)}` : ''} →
+          </span>
+        </button>
+      )}
     </div>
   );
 }

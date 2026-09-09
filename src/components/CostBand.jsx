@@ -1,56 +1,59 @@
 import { money } from '../lib/cost.js';
 
 /**
- * The headline answer to "what will this cost me". Sits directly under the
- * condition name, above everything clinical — the price is the point of the
- * app, not a footnote to a diagnosis.
+ * The money answer, in real dollars from Cost Plus Drugs.
+ *
+ * The second stat used to read "priciest option costs 4.3× more", which told
+ * you nothing you could act on — a ratio with no dollars and no next step. It
+ * now names the two drugs and the cash difference between them, which is a
+ * question you can put to a prescriber.
  */
 export default function CostBand({ cost }) {
   if (!cost) return null;
 
-  // Only worth a slot when it tells you something: a gap in coverage, or enough
-  // options that the count matters.
+  // Medications are keyed by name — there's no id on them.
+  const showSaving = cost.saving >= 1 && cost.cheapest.name !== cost.dearest.name;
   const showCoverage = cost.unpriced > 0 || cost.priced >= 3;
 
   return (
     <div className="costband">
       <div className="costband__stat">
-        <span className="costband__label">Cheapest way to treat it</span>
-        <span className="costband__value">{money(cost.cheapest)}</span>
+        <span className="costband__label">Cheapest option</span>
+        <span className="costband__value">{money(cost.cheapest.cost.amount)}</span>
         <span className="costband__note">
-          {cost.hasRange
-            ? `up to ${money(cost.dearest)} depending on what you're prescribed`
-            : `at the best-priced pharmacy nearby`}
+          {cost.cheapest.name} · {cost.cheapest.cost.quantity_label ?? cost.cheapest.cost.quantityLabel}
         </span>
       </div>
 
-      {cost.saving > 0.5 && (
+      {showSaving && (
         <div className="costband__stat costband__stat--save">
-          <span className="costband__label">You could save</span>
+          <span className="costband__label">Ask about the cheaper one</span>
           <span className="costband__value">
             {money(cost.saving)}
-            {cost.savingPct > 0 && <em className="costband__pct">{cost.savingPct}% off</em>}
+            <em className="costband__pct">saved</em>
           </span>
           <span className="costband__note">
-            on {cost.savingOn} — {money(cost.savingFrom)} at the priciest pharmacy nearby,{' '}
-            {money(cost.savingTo)} at the cheapest
+            {cost.cheapest.name} costs {money(cost.cheapest.cost.amount)}, {cost.dearest.name}{' '}
+            {money(cost.dearest.cost.amount)} — both treat this condition, so it's worth
+            asking your prescriber which fits.
           </span>
         </div>
       )}
 
       {showCoverage && (
-      <div className="costband__stat costband__stat--meta">
-        <span className="costband__label">Priced options</span>
-        <span className="costband__value costband__value--sm">
-          {cost.priced}
-          {cost.unpriced > 0 && <span className="costband__of"> of {cost.priced + cost.unpriced}</span>}
-        </span>
-        <span className="costband__note">
-          {cost.unpriced > 0
-            ? `${cost.unpriced} without a published price`
-            : 'all with live pharmacy pricing'}
-        </span>
-      </div>
+        <div className="costband__stat costband__stat--meta">
+          <span className="costband__label">Priced</span>
+          <span className="costband__value costband__value--sm">
+            {cost.priced}
+            {cost.unpriced > 0 && (
+              <span className="costband__of"> of {cost.priced + cost.unpriced}</span>
+            )}
+          </span>
+          <span className="costband__note">
+            {cost.source}
+            {cost.unpriced > 0 && ` · ${cost.unpriced} not carried`}
+          </span>
+        </div>
       )}
     </div>
   );

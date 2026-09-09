@@ -1,45 +1,42 @@
 /**
- * BACKEND INTEGRATION POINT
- * =========================
- * This is the *only* file that needs to change when the Python backend is ready.
+ * The backend call. One endpoint, one shape.
  *
- * Set VITE_API_BASE_URL in .env.local (e.g. http://localhost:8000) and this
- * module POSTs to `${VITE_API_BASE_URL}/diagnose` instead of using mock data.
- * Leave it unset and the UI runs entirely on the fixtures in ./mockData.js.
+ *   POST {VITE_API_BASE_URL}/diagnose   {"symptoms": ["sore throat", "fever"]}
  *
- * ---- REQUEST ----
- * POST /diagnose
- * { "symptoms": ["sore throat", "fever", "swollen glands"] }
+ * VITE_API_BASE_URL defaults to http://localhost:8000, which is where
+ * `npm run api` puts the Python server. See server/api.py for the other end.
  *
- * ---- RESPONSE ----  (see normalize() below for the tolerated variations)
+ * ---- RESPONSE ----  (normalize() below tolerates snake_case or camelCase)
  * {
- *   "search_time_ms": 6,                   // Typesense's own timing — surfaced
- *                                          // prominently in the UI, so pass the
- *                                          // real number through
+ *   "search_time_ms": 4,                   // Typesense's own timing; shown in the UI
  *   "results": [
  *     {
- *       "id": "strep-throat",
- *       "name": "Strep Throat",
- *       "confidence": 0.86,                  // 0..1 — drives the hero takeover
- *       "summary": "Bacterial infection ...", // optional
- *       "symptoms": ["Sore throat", "Fever", "Swollen lymph nodes"],
- *       "matched_symptoms": ["Sore throat", "Fever"],   // subset of `symptoms`
- *       "treatments": "Antibiotics, rest, fluids",      // dataset text or list;
- *                                                       // shown as "How it's treated"
- *       "medications": [ ... ]   // MAY BE EMPTY — see note below
- *       "medications": [
- *         {
- *           "name": "Amoxicillin",
- *           "form": "500mg capsule",         // optional
- *           "otc": false,                    // prescription vs over-the-counter
- *           "note": "10-day course",         // optional
- *           "image_url": "https://.../pill.png",  // optional; drawn if absent
- *           "goodrx": {
- *             "url": "https://www.goodrx.com/amoxicillin",
- *             "lowest_price": 11.28,
- *             "pharmacies": [
- *               { "name": "CVS Pharmacy", "price": 11.28, "distance_mi": 0.4 }
- *             ]
+ *       "id": "asthma",
+ *       "name": "Asthma",
+ *       "confidence": 0.90,                // 0..1 - drives the full-page takeover
+ *       "summary": "A bronchial disease ...",
+ *       "symptoms": ["Wheezing", "Shortness of breath"],
+ *       "matched_symptoms": ["Wheezing"],  // subset of `symptoms`
+ *       "treatments": ["Inhaled corticosteroids", "..."],
+ *       "medications": [                   // MAY BE EMPTY - the drug dataset
+ *         {                                // covers far fewer conditions
+ *           "name": "Metformin",
+ *           "form": "500mg Tablet",
+ *           "otc": null,                   // Cost Plus doesn't publish this
+ *           "note": "A glucocorticoid ...",
+ *           "image_url": null,             // null => we draw the dosage form
+ *           "cost": {                      // null when Cost Plus doesn't carry it
+ *             "amount": 5.31,              // the real total they charge
+ *             "quantity": 30,
+ *             "quantity_label": "30 tablets",
+ *             "unit_price": 0.009,
+ *             "strength": "500mg",
+ *             "form": "Tablet",
+ *             "pill": true,
+ *             "brand_name": "Glucophage",
+ *             "generic": true,
+ *             "source": "Cost Plus Drugs",
+ *             "url": "https://www.costplusdrugs.com/medications/metformin-500mg-tablet/"
  *           }
  *         }
  *       ]
@@ -48,11 +45,7 @@
  * }
  */
 
-import { mockDiagnose } from './mockData.js';
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
-
-export const USING_MOCK_DATA = !BASE_URL;
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
 
 /**
  * @param {string[]} symptoms
@@ -64,21 +57,18 @@ export async function diagnose(symptoms, { signal } = {}) {
 
   const started = performance.now();
 
-  if (USING_MOCK_DATA) {
-    const mock = await mockDiagnose(list);
-    return {
-      results: mock.results,
-      searchTimeMs: mock.searchTimeMs,
-      roundTripMs: performance.now() - started,
-    };
+  let res;
+  try {
+    res = await fetch(`${BASE_URL}/diagnose`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symptoms: list }),
+      signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') throw err;
+    throw new Error(await describeNetworkFailure());
   }
-
-  const res = await fetch(`${BASE_URL.replace(/\/$/, '')}/diagnose`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ symptoms: list }),
-    signal,
-  });
 
   if (!res.ok) {
     throw new Error(`Backend returned ${res.status} ${res.statusText}`);
@@ -86,6 +76,10 @@ export async function diagnose(symptoms, { signal } = {}) {
 
   const data = await res.json();
   const roundTripMs = performance.now() - started;
+
+  // The backend reports this while it's still downloading datasets on first run.
+  if (data.error) throw new Error(data.error);
+
   const results = Array.isArray(data) ? data : data.results ?? data.diseases ?? [];
 
   return {
@@ -96,21 +90,57 @@ export async function diagnose(symptoms, { signal } = {}) {
   };
 }
 
+/** Ask the backend whether it has finished indexing. */
+export async function health() {
+  try {
+    const res = await fetch(`${BASE_URL}/health`);
+    if (!res.ok) return { ok: false, reason: `Backend replied ${res.status}.` };
+    return await res.json();
+  } catch {
+    return { ok: false, unreachable: true, reason: await describeNetworkFailure() };
+  }
+}
+
+/**
+ * Work out *why* a request failed.
+ *
+ * A CORS rejection and a dead server both surface as the same opaque
+ * TypeError, and reporting "backend not running" when it is running sends you
+ * restarting the wrong thing. A no-cors probe resolves (opaquely) whenever
+ * something is actually listening, which tells the two apart.
+ */
+async function describeNetworkFailure() {
+  try {
+    await fetch(`${BASE_URL}/health`, { mode: 'no-cors', cache: 'no-store' });
+  } catch {
+    return `Can't reach the search backend at ${BASE_URL}. Start it with \`npm run api\`.`;
+  }
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'this page';
+  return (
+    `The backend at ${BASE_URL} is running, but your browser blocked its response. ` +
+    `This page is served from ${origin} — restart the API so it allows that origin.`
+  );
+}
+
 // Accepts either snake_case (Python-friendly) or camelCase, so the backend can
 // hand back whatever is natural on its side without breaking the UI.
 function normalize(raw, i) {
-  const goodrxOf = (med) => {
-    const g = med.goodrx ?? med.good_rx ?? null;
-    if (!g) return null;
+  const costOf = (med) => {
+    const c = med.cost ?? med.price ?? null;
+    if (!c) return null;
     return {
-      url: g.url ?? null,
-      lowestPrice: num(g.lowest_price ?? g.lowestPrice ?? g.price),
-      pharmacies: (g.pharmacies ?? []).map((p) => ({
-        name: p.name ?? 'Pharmacy',
-        price: num(p.price),
-        distanceMi: num(p.distance_mi ?? p.distanceMi),
-        address: p.address ?? null,
-      })),
+      amount: num(c.amount ?? c.price ?? c.total),
+      quantity: num(c.quantity),
+      quantityLabel: c.quantity_label ?? c.quantityLabel ?? '',
+      unitPrice: num(c.unit_price ?? c.unitPrice),
+      strength: c.strength ?? '',
+      form: c.form ?? '',
+      pill: c.pill ?? true,
+      brandName: c.brand_name ?? c.brandName ?? '',
+      generic: c.generic ?? null,
+      source: c.source ?? 'Cost Plus Drugs',
+      url: c.url ?? null,
     };
   };
 
@@ -121,24 +151,19 @@ function normalize(raw, i) {
     confidence: num(raw.confidence ?? raw.score ?? raw.match_score),
     symptoms: raw.symptoms ?? [],
     matchedSymptoms: raw.matched_symptoms ?? raw.matchedSymptoms ?? [],
-    // Treatment approach from the disease dataset — every condition has this,
-    // even when the medication lookup comes back empty.
+    // Treatment approach from the disease dataset — present even when the
+    // medication lookup comes back empty.
     treatments: toList(raw.treatments ?? raw.treatments_text ?? raw.treatment),
-    // Deliberately NOT falling back to `treatments`: the two are different
-    // things now. A condition the medication database doesn't cover should send
-    // an empty list, and the UI says so rather than inventing drugs.
     medications: (raw.medications ?? []).map((med) =>
       typeof med === 'string'
-        ? { name: med, form: '', otc: null, note: '', imageUrl: null, goodrx: null }
+        ? { name: med, form: '', otc: null, note: '', imageUrl: null, cost: null }
         : {
             name: med.name ?? 'Medication',
             form: med.form ?? med.dosage ?? '',
             otc: med.otc ?? null,
             note: med.note ?? '',
-            // Optional product photo. Without one we draw the dosage form
-            // ourselves — see components/MedIcon.jsx.
             imageUrl: med.image_url ?? med.imageUrl ?? null,
-            goodrx: goodrxOf(med),
+            cost: costOf(med),
           }
     ),
   };

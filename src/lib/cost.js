@@ -1,67 +1,41 @@
 /**
- * Cost maths, shared by everything that quotes a price.
+ * Cost maths over Cost Plus Drugs quotes.
  *
- * The tricky part: a condition's medication list is a set of *options*, not a
- * regimen — nobody takes all twelve diabetes drugs. So we never sum the list.
- * Instead we report:
+ * Every figure is a real total that pharmacy charges for a stated fill — no
+ * pharmacy markups, no invented retail prices.
  *
- *   cheapest   the least you could pay to start treating this
- *   dearest    the most, if you're prescribed the expensive option
- *   saving     the biggest amount pharmacy choice alone can save you, on a
- *              single drug — the number the app exists to surface
+ * The comparison that matters: for a condition with a dozen treatment options,
+ * what each one costs. Pills and non-pills aren't comparable (30 tablets vs one
+ * tube of cream), so the summary compares within the larger group and labels
+ * what it compared.
  */
 export function costSummary(medications = []) {
-  let cheapest = Infinity;
-  let dearest = 0;
-  let saving = 0;
-  let savingOn = null;
-  let savingFrom = null;
-  let savingTo = null;
-  let priced = 0;
+  const priced = medications.filter((m) => m.cost && typeof m.cost.amount === 'number');
+  if (!priced.length) return null;
 
-  for (const med of medications) {
-    const prices = (med.goodrx?.pharmacies ?? [])
-      .map((p) => p.price)
-      .filter((n) => typeof n === 'number' && Number.isFinite(n));
+  const pills = priced.filter((m) => m.cost.pill);
+  const others = priced.filter((m) => !m.cost.pill);
+  const comparable = pills.length >= others.length ? pills : others;
+  const sorted = [...comparable].sort((a, b) => a.cost.amount - b.cost.amount);
 
-    if (!prices.length) continue;
-    priced++;
-
-    const lo = Math.min(...prices);
-    const hi = Math.max(...prices);
-
-    cheapest = Math.min(cheapest, lo);
-    dearest = Math.max(dearest, lo);
-
-    if (hi - lo > saving) {
-      saving = hi - lo;
-      savingOn = med.name;
-      savingFrom = hi;
-      savingTo = lo;
-    }
-  }
-
-  if (!priced) return null;
+  const cheapest = sorted[0];
+  const dearest = sorted[sorted.length - 1];
+  const saving = sorted.length > 1 ? dearest.cost.amount - cheapest.cost.amount : 0;
 
   return {
     cheapest,
     dearest,
-    // A meaningful spread only exists when several drugs are priced.
-    hasRange: dearest - cheapest > 0.01,
+    // Real money, not a ratio: what you keep by taking the cheaper option.
     saving,
-    savingOn,
-    savingFrom,
-    savingTo,
-    // % off the worst nearby price for the drug with the biggest spread
-    savingPct: savingFrom ? Math.round((saving / savingFrom) * 100) : 0,
-    priced,
-    unpriced: medications.length - priced,
+    savingPct: dearest.cost.amount > 0 ? Math.round((saving / dearest.cost.amount) * 100) : 0,
+    comparableCount: comparable.length,
+    priced: priced.length,
+    unpriced: medications.length - priced.length,
+    source: priced[0].cost.source || 'Cost Plus Drugs',
   };
 }
 
-export const money = (n) =>
-  typeof n === 'number' && Number.isFinite(n)
-    ? n >= 100
-      ? `$${Math.round(n)}`
-      : `$${n.toFixed(2)}`
-    : '—';
+export function money(n) {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
+  return n >= 100 ? `$${n.toFixed(0)}` : `$${n.toFixed(2)}`;
+}

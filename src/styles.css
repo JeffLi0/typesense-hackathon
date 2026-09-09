@@ -79,18 +79,64 @@ button { font: inherit; }
 
 .bar__right { display: flex; align-items: center; gap: 10px; }
 
-.tag--demo {
-  font-size: 10.5px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 3px 8px;
+.home__warn {
+  font-size: 12.5px;
+  color: var(--speed);
+  background: var(--speed-soft);
+  border-radius: 8px;
+  padding: 8px 14px;
+  margin-top: 14px;
 }
 
+.notice__retry {
+  margin-top: 10px;
+  align-self: center;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.notice__retry:hover { border-color: var(--accent); color: var(--accent); }
+
+/* prices we generated rather than quoted — never let them read as live GoodRx */
+.fill__est {
+  margin-left: 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  vertical-align: 1px;
+}
+
+.nomeds__jump {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  color: var(--ink-2);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.nomeds__jump:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.nomeds__jump strong { color: var(--ink); font-weight: 600; }
+.nomeds__jumpmeta { font-size: 12px; color: var(--accent); }
+
 /* ---- symptom pills ---------------------------------------------------- */
-.pills { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.pills { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; position: relative; }
 
 .pills__label {
   font-size: 10.5px;
@@ -198,6 +244,100 @@ button { font: inherit; }
 .ts__bolt { width: 9px; height: 12px; fill: var(--speed); flex: none; }
 .ts__prefix { color: var(--ink-3); }
 .ts__name { font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
+
+/* ---- autocomplete ------------------------------------------------------ */
+.searchwrap { position: relative; width: 100%; }
+
+.suggest {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  max-height: 320px;
+  overflow-y: auto;
+  animation: fadein 0.12s ease;
+}
+
+/* anchored under the "+ symptom" pill rather than a full-width field */
+.suggest--compact {
+  top: calc(100% + 5px);
+  left: 0;
+  right: auto;
+  min-width: 260px;
+  max-height: 260px;
+}
+
+.suggest__item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  background: none;
+  border-radius: 9px;
+  padding: 8px 11px;
+  text-align: left;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.suggest__item:hover,
+.suggest__item.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Typesense returns the matched span wrapped in <mark> */
+.suggest__text { min-width: 0; }
+.suggest__text mark {
+  background: none;
+  color: var(--ink);
+  font-weight: 650;
+}
+.suggest__item:hover .suggest__text mark,
+.suggest__item.is-active .suggest__text mark { color: var(--accent); }
+
+.suggest__count {
+  flex: none;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.suggest__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 7px 11px 3px;
+  border-top: 1px solid var(--line-2);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.suggest__foot strong {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--speed);
+}
+.suggest__brand { font-weight: 600; color: var(--ink-2); letter-spacing: -0.01em; }
+
+.pill__adding { position: relative; display: inline-flex; }
+
+@keyframes fadein {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* ---- home ------------------------------------------------------------- */
 .screen--home { justify-content: center; align-items: center; overflow-y: auto; }
@@ -506,7 +646,7 @@ button { font: inherit; }
 .costband__value {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 7px;
   font-size: 27px;
   font-weight: 650;
   letter-spacing: -0.035em;
@@ -518,6 +658,14 @@ button { font: inherit; }
 .costband__of { font-size: 13px; font-weight: 500; color: var(--ink-3); }
 
 .costband__stat--save .costband__value { color: var(--accent); }
+
+.costband__per {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+  letter-spacing: 0;
+}
 
 .costband__pct {
   font-style: normal;
@@ -649,113 +797,51 @@ button { font: inherit; }
 .med__form, .med__note { font-size: 12.5px; color: var(--ink-3); }
 .med__note { margin-top: 5px; }
 
-/* ---- where to fill it ------------------------------------------------- */
-.fill { margin-top: 12px; }
+/* ---- cost, from Cost Plus Drugs -------------------------------------------------- */
+.med__cost { flex: none; text-align: right; }
 
-.fill__pick {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  background: var(--accent-soft);
-  border-radius: 10px;
-  padding: 9px 12px;
-}
-
-.fill__where { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-
-.fill__badge {
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.fill__name {
-  font-size: 13.5px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.fill__meta {
-  font-size: 11.5px;
-  color: var(--ink-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.fill__pricebox { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
-
-.fill__price {
-  font-size: 18px;
+.med__unitcost {
+  display: block;
+  font-size: 17px;
   font-weight: 650;
   letter-spacing: -0.025em;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
+.med__per { font-size: 10.5px; color: var(--ink-3); white-space: nowrap; }
 
-.fill__save {
-  font-size: 10.5px;
+.tag--brand { background: var(--speed-soft); color: var(--speed); }
+
+.fill { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line-2); }
+
+.fill__product {
+  font-size: 12px;
+  color: var(--ink-2);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fill__src {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--accent);
-  opacity: 0.85;
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
   white-space: nowrap;
 }
 
-.fill__reason { margin-top: 7px; font-size: 12.5px; color: var(--ink-2); }
-.fill__alt { margin-top: 3px; font-size: 12px; color: var(--ink-3); }
-.fill__alt strong { font-weight: 600; color: var(--ink-2); }
+.fill__brand { font-size: 11.5px; color: var(--ink-3); }
 
-.fill__more {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 9px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--ink-2);
-  font-size: 12.5px;
-  cursor: pointer;
-  border-bottom: 1px dashed var(--line);
-}
-.fill__more:hover { color: var(--accent); border-bottom-color: var(--accent); }
-.fill__more svg {
-  width: 11px; height: 11px;
-  fill: none; stroke: currentColor; stroke-width: 1.6;
-  stroke-linecap: round; stroke-linejoin: round;
-  transition: transform 0.18s ease;
-}
-.fill__more[aria-expanded='true'] svg { transform: rotate(180deg); }
-
-.fill__list { margin-top: 8px; border-top: 1px solid var(--line-2); }
-
-.fill__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line-2);
-}
-.fill__row:last-child { border-bottom: 0; }
-
-.fill__rowprice {
-  flex: none;
-  text-align: right;
-  font-size: 13.5px;
-  font-variant-numeric: tabular-nums;
-}
-.fill__delta { display: block; font-size: 11px; color: var(--speed); }
+.fill__unpriced { margin-top: 10px; font-size: 12.5px; color: var(--ink-3); }
 
 .goodrx-link {
   display: inline-block;
-  margin-top: 10px;
+  margin-top: 9px;
   font-size: 12.5px;
   color: var(--accent);
   text-decoration: none;
@@ -815,6 +901,7 @@ button { font: inherit; }
   gap: 8px;
 }
 .candidate__from { font-size: 12.5px; color: var(--ink-3); }
+.candidate__per { font-size: 11px; color: var(--ink-3); }
 .candidate__from strong {
   font-size: 15px;
   font-weight: 650;

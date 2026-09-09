@@ -1,151 +1,196 @@
-# What's wrong — and what will it cost? (frontend)
+# What's wrong — and what will it cost?
 
-Type your symptoms and get the answer people actually need next: **what
-treating it costs, and how to pay less for it.** One condition fills the screen
-with the cheapest route to treatment, how much the right pharmacy saves you over
-the wrong one, and where to go — not a list of diseases to worry about.
+Type your symptoms and get the answer people actually need next: **what treating
+it costs, and how to pay less for it.** One condition fills the screen with the
+cheapest route to treatment, how much the right pharmacy saves you over the
+wrong one, and where to go.
 
-**React + Vite.** Search is powered by **Typesense 30.2**, owned by the Python
-backend.
-
-> **Framing:** this is a cost tool, not a symptom encyclopedia. The condition is
-> how we find the right medications; the price is the product. Anywhere a
-> condition appears — the headline, the "also possible" list, the low-confidence
-> grid — it carries a price with it.
-
-> **Status:** proof of concept. The UI runs on dummy data
-> (`src/lib/mockData.js`) until the backend endpoint exists. Flip one env var to
-> switch over — see [Wiring up the backend](#wiring-up-the-backend).
+**Stack:** React + Vite frontend · FastAPI backend · **Typesense 30.2** doing
+semantic search over symptom text with its built-in embedding model.
 
 ---
 
-## Quick start
+## Run it
+
+Three processes. Each in its own terminal.
 
 ```bash
-npm install
-npm run dev           # http://localhost:5173
-```
-
-That's it for frontend work — no Typesense needed while we're on dummy data.
-A "demo data" badge shows in the header whenever the app is running on fixtures.
-
-<details>
-<summary>Running Typesense locally (only needed for backend work)</summary>
-
-```bash
-# 1. Install Typesense 30.2 (macOS, Apple Silicon)
-curl -O https://dl.typesense.org/releases/30.2/typesense-server-30.2-darwin-arm64.tar.gz
-mkdir -p typesense && tar -xzf typesense-server-30.2-darwin-arm64.tar.gz -C typesense
-rm typesense-server-30.2-darwin-arm64.tar.gz
-
-# 2. Start it (keep running in its own terminal)
-mkdir -p typesense/data
+# 1. Typesense
 npm run typesense
 
-# 3. Seed the dev dataset (prod ingestion belongs to the Python backend)
-npm run seed
+# 2. Backend  (first run downloads the embedding model + datasets — a few minutes)
+python3 -m venv .venv && ./.venv/bin/pip install -r server/requirements.txt
+npm run api                       # http://localhost:8000
+
+# 3. Frontend
+npm install && npm run dev        # http://localhost:5173
 ```
 
-`npm run seed` pulls [QuyenAnhDE/Diseases_Symptoms](https://huggingface.co/datasets/QuyenAnhDE/Diseases_Symptoms)
-(400 conditions) into a `diseases` collection and writes a **search-only** API
-key into `.env.local`, merging with whatever is already in there.
+The backend indexes on first boot and skips it on every boot after, so only the
+first start is slow. `curl localhost:8000/health` reports when it's ready (and how many diseases and
+symptom phrases are indexed); the
+home page also warns if the API isn't up. Force a rebuild with `REINDEX=1 npm run api`.
 
-</details>
-
----
-
-## How the UI behaves
-
-- **Cost leads.** A band under the condition name answers the money question
-  before anything clinical: the cheapest way to treat it, and the biggest saving
-  available from pharmacy choice alone ("You could save $27.58 — 53% off on
-  Oseltamivir"). Cost maths lives in [`src/lib/cost.js`](src/lib/cost.js).
-- **Prices never get summed.** A condition's medication list is a set of
-  *options*, not a regimen — nobody takes all twelve diabetes drugs. So we report
-  a range ("from $4.00, up to $548 depending on what you're prescribed") and the
-  largest single-drug saving, never a total.
-- **One screen, no scrolling.** The viewport is locked; the answer is laid out
-  to fit. Long medication lists scroll inside their own panel.
-- **One pharmacy, with a reason.** Rather than listing every price, the UI picks
-  the pharmacy to actually use and says why ("Cheapest nearby — $6.53 less than
-  Walgreens"). If somewhere closer is only slightly dearer, that shows as a
-  single alternative line. The rest hide behind "N other pharmacies".
-- **Treatment sits next to the symptoms.** The left column is about the disease
-  — known symptoms, how it's treated, then the other candidates. The right
-  column is purely the medication shelf.
-- **Medications are illustrated.** Send `image_url` and we show it; otherwise
-  the dosage form (capsule, tablet, inhaler, spray, syrup) is drawn from the
-  `form` string, coloured per drug — no network images needed.
-- **Confidence decides the layout.** If the top result scores **≥ 0.7**, it takes
-  over the entire page and the rest become a one-line "also possible" strip that
-  swaps into the stage on click. Below 0.7 the app doesn't fake certainty — it
-  shows the contenders as a grid, and opening one promotes it to the full stage.
-  The threshold is `TAKEOVER_CONFIDENCE` in [`src/App.jsx`](src/App.jsx).
-  "Also possible" sits under the symptom list with a percentage on each row —
-  that's where someone checks whether the diagnosis actually fits.
-- **Symptoms are pills you can drop.** Hovering a pill strikes it through;
-  clicking it removes that symptom. There's no × inside the pill, so nothing
-  shifts position as the pointer moves along the row. `+ symptom` adds (commas
-  split into several), and `Clear all` appears once there's more than one. Every
-  change re-runs the search immediately — there is no second search box.
-  Removing the last symptom returns to the opening screen.
-- **Speed is on display.** Every search shows `N conditions in X ms` next to a
-  "Powered by Typesense" mark, so **send back the real `search_time_ms`** —
-  that number is the demo.
-
----
-
-## Wiring up the backend
-
-Everything the backend touches lives in **[`src/lib/api.js`](src/lib/api.js)**.
-No component knows where the data comes from.
+There is also a terminal version of the same pipeline:
 
 ```bash
-echo "VITE_API_BASE_URL=http://localhost:8000" >> .env.local
+./.venv/bin/python server/cli.py
 ```
 
-With that set, the app stops using fixtures and does:
+---
+
+## How it fits together
+
+```
+typing    ──►  Typesense prefix search      ──►  symptom autocomplete
+   │            browser → Typesense direct, `symptoms` collection, 911 phrases
+   │
+symptoms  ──►  Typesense vector search      ──►  condition + symptoms + treatments
+   │            (QuyenAnhDE/Diseases_Symptoms, 400 rows, ts/all-MiniLM-L12-v2)
+   │
+   └────────►  K-Paths pharmaDB lookup      ──►  medications for that condition
+                (Tassy24/K-Paths-...-pharmaDB, 1145 usable drug-disease rows)
+                                             │
+                    costplus.py + pricing.py  ──►  real price per drug
+                     (Cost Plus Drugs public API, 875 medications)
+```
+
+Typesense is used twice, in the two ways it's good at: **prefix + typo search**
+for the typeahead, **vector search** for the diagnosis.
+
+| File | Does |
+| --- | --- |
+| `server/api.py` | `POST /diagnose`, `GET /health`, ranking, confidence |
+| `server/index.py` | Typesense schemas (diseases + symptoms), ingest, search, scoped key |
+| `server/pharma.py` | disease → medications, from K-Paths |
+| `server/costplus.py` | Cost Plus Drugs catalogue + per-drug quotes, cached |
+| `server/pricing.py` | quote → the cost payload the UI renders |
+| `src/lib/api.js` | the only frontend file that talks to the backend |
+| `src/lib/suggest.js` | autocomplete — talks to Typesense directly |
+| `src/components/SymptomSuggest.jsx` | the typeahead dropdown + keyboard handling |
+
+---
+
+## Three things to know before you demo
+
+### 1. Every number on screen comes from a real source
+
+Drug prices come from the **[Cost Plus Drugs public API](https://costplusdrugs.github.io/apidocs/)**
+(`us-central1-costplusdrugs-publicapi.cloudfunctions.net/main`) — no key, no
+auth. `server/costplus.py` pulls their catalogue (2,381 products / 875
+medications) and a **quote per drug**, cached to `data/`.
+
+The quote matters: their total is **not** unit price × quantity, because their
+published formula folds in markup, a pharmacy fee and shipping. Metformin is
+$0.009 a unit but **$5.31 for thirty tablets**. Only the quote endpoint knows
+the real number, so that's the one shown — and each price links to the page you
+buy it on.
+
+Unmodified from their API: the amount, the strength, the form, the brand it's a
+generic for, and the URL. The single assumption is fill size — 30 for a pill,
+one package otherwise — and it's printed next to every price ("30 tablets"),
+because the total is quoted for exactly that quantity.
+
+**There are no pharmacy names, addresses, distances, markups or fees anywhere in
+this app.** Cost Plus is one pharmacy publishing its own prices; what any other
+pharmacy charges isn't in our data, and the UI doesn't pretend otherwise.
+
+Coverage: **35% of K-Paths drugs are carried by Cost Plus** — but because priced
+drugs sort first and most conditions have more than twelve candidate drugs, the
+big conditions still come out **12 of 12 priced**. Anything not carried says so.
+
+### 2. Most conditions have no medications, by design
+
+The symptom dataset has 392 conditions; the drug dataset covers 91. After name
+normalization, **49 conditions (12%) have medications.** That isn't a bug and
+the UI treats it as a first-class state: it explains the gap, leans on the
+`treatments` text (which every condition has), and offers a one-click jump to
+the nearest condition that *is* priced.
+
+The home page examples are chosen to land on priced conditions. If the datasets
+change, re-check them.
+
+### 3. Ranking is honest, not cost-biased
+
+It's tempting to float conditions we can price to the top. That makes the page
+show a 90%-match headline above a 99%-match alternative, and that number is
+exactly what a user reads to decide whether the diagnosis fits. So results stay
+in semantic order, and the empty-medication panel offers the priced neighbour
+instead. Set `PRIORITIZE_PRICED=1` to rank by pricing anyway.
+
+---
+
+## Symptom autocomplete
+
+Both inputs — the home search bar and the `+ symptom` pill — complete against
+the **911 distinct symptom phrases** in the dataset, deduplicated
+case-insensitively and counted by how many diseases list each one.
+
+Following [typesense/showcase-address-autocomplete](https://github.com/typesense/showcase-address-autocomplete),
+**the browser queries Typesense directly** rather than proxying through Python:
+a keystroke costs one Typesense search (`<1 ms`) instead of a round trip. The
+backend mints a **search-only key scoped to the `symptoms` collection** at
+startup and serves it from `GET /search-config` — so it isn't baked into the
+bundle, and it can't write or read any other collection. Both restrictions are
+enforced by Typesense, not by us.
+
+Query parameters, and why:
+
+| Parameter | Why |
+| --- | --- |
+| `prefix=true` | Last token is a prefix — "sore thr" → "Sore throat" |
+| `num_typos=2` | "hedache" → "Headache" |
+| `infix=fallback` | "ritis" → "Pericarditis" when a prefix match finds nothing |
+| `sort_by=_text_match:desc,count:desc` | Relevance first, then popularity, so "Fever" beats "Fever (in some cases)" |
+| `highlight_start_tag=<mark>` | Typesense marks the matched span; the dropdown renders it as-is |
+
+There's no debounce — Typesense answers in under a millisecond and the dropdown
+prints that time, which is rather the point. The home bar completes only the
+segment after the last comma, so "fever, sore thr" completes "sore thr" alone.
+
+Arrow keys move, Enter accepts, Escape dismisses, click selects.
+
+## The contract
 
 ### `POST /diagnose`
 
-Symptoms arrive as an **array** — one entry per pill the user sees.
-
 ```json
-{ "symptoms": ["sore throat", "fever", "swollen glands"] }
+{ "symptoms": ["wheezing", "shortness of breath"] }
 ```
 
 ### Response
 
 ```json
 {
-  "search_time_ms": 6,
+  "search_time_ms": 4,
   "results": [
     {
-      "id": "strep-throat",
-      "name": "Strep Throat",
-      "confidence": 0.86,
-      "summary": "A bacterial throat infection caused by group A Streptococcus.",
-      "symptoms": ["Sore throat", "Fever", "Swollen lymph nodes"],
-      "matched_symptoms": ["Sore throat", "Fever"],
-      "treatments": "Antibiotics, supportive care (fluids, rest)",
+      "id": "asthma",
+      "name": "Asthma",
+      "confidence": 0.90,
+      "summary": "A bronchial disease characterized by chronic inflammation...",
+      "symptoms": ["Recurrent episodes of wheezing", "Shortness of breath"],
+      "matched_symptoms": ["Recurrent episodes of wheezing"],
+      "treatments": ["Long-term control medications", "Avoidance of triggers"],
       "medications": [
         {
-          "name": "Amoxicillin",
-          "form": "500mg capsule · 20 capsules",
-          "otc": false,
-          "note": "Typical 10-day course.",
+          "name": "Metformin",
+          "form": "500mg Tablet",
+          "otc": null,
+          "note": "A biguanide used to treat type 2 diabetes.",
           "image_url": null,
-          "goodrx": {
-            "url": "https://www.goodrx.com/amoxicillin",
-            "lowest_price": 8.42,
-            "pharmacies": [
-              {
-                "name": "Costco Pharmacy",
-                "price": 8.42,
-                "distance_mi": 2.1,
-                "address": "1900 S Coast Hwy"
-              }
-            ]
+          "cost": {
+            "amount": 5.31,
+            "quantity": 30,
+            "quantity_label": "30 tablets",
+            "unit_price": 0.009,
+            "strength": "500mg",
+            "form": "Tablet",
+            "pill": true,
+            "brand_name": "Glucophage",
+            "generic": true,
+            "source": "Cost Plus Drugs",
+            "url": "https://www.costplusdrugs.com/medications/metformin-500mg-tablet/"
           }
         }
       ]
@@ -154,70 +199,74 @@ Symptoms arrive as an **array** — one entry per pill the user sees.
 }
 ```
 
-| Field                  | Required | Notes                                                          |
-| ---------------------- | -------- | -------------------------------------------------------------- |
-| `search_time_ms`       | ⭐       | Typesense's own timing. Shown prominently — pass the real value |
-| `name`                 | ✅       | Disease name — the page heading                                 |
-| `symptoms`             | ✅       | Full known-symptom list for the condition                       |
-| `treatments`           | ✅       | Dataset treatment text. Shown as "How it's treated"              |
-| `confidence`           | ⭐       | `0..1`. **≥ 0.7 triggers the full-page takeover**               |
-| `matched_symptoms`     |          | Subset of `symptoms` the user typed; ticked green in the UI     |
-| `summary`              |          | One or two sentences under the heading                          |
-| `medications[].otc`    |          | `true` → OTC badge, `false` → Rx badge, omit → no badge         |
-| `medications`          |          | **May be empty** — see the note below                           |
-| `medications[].image_url` |       | Product photo. Omit and we draw the dosage form ourselves       |
-| `medications[].goodrx` |          | Omit and the medication renders without pricing                 |
-| `goodrx.pharmacies[]`  |          | The "where to fill it" list; cheapest row is highlighted        |
+| Field | Notes |
+| --- | --- |
+| `search_time_ms` | Typesense's own timing — the UI puts it on screen, so pass the real number |
+| `confidence` | `0..1`. **≥ 0.7 gives the condition the whole page**, below that the UI shows candidates side by side |
+| `symptoms` / `matched_symptoms` | Full list, and the subset the user described (ticked green) |
+| `treatments` | Dataset treatment text — present even when `medications` is empty |
+| `medications` | May be empty; may be a dozen (the UI collapses after 4) |
+| `goodrx.estimated` | `true` makes the UI label the price an estimate |
+| `medications[].otc` | `true`/`false` for an OTC badge; `null` shows none. Cost Plus doesn't publish this, so we send `null` |
+| `cost.amount` / `quantity_label` | The real total and what it's for ("$5.31 · 30 tablets") |
+| `cost.url` / `source` | Provenance — every price links to the page you buy it on |
+| `medications[].image_url` | Product photo; omit and we draw the dosage form |
 
-Notes for the backend side:
-
-- **`treatments` is separate from `medications`.** Every condition in the
-  dataset has treatment text, so always send it — it's what fills the page when
-  the medication lookup misses. Send it as the raw comma string
-  (`"Antibiotics, supportive care (fluids, rest)"`) or a list; we split on commas
-  and leave parentheses intact. Earlier this field doubled as a medication
-  fallback — it no longer does.
-- **An empty `medications` list is expected, not an error.** The symptom→disease
-  index and the disease→medication index don't cover the same conditions. Send
-  `[]` and the UI explains the gap and leans on `treatments`; don't invent drugs
-  to fill it.
-- **`goodrx.pharmacies` is what powers the headline.** The saving figure is the
-  spread between the cheapest and dearest nearby price for the same drug, so the
-  more pharmacies you return per medication, the more the app has to say. One
-  pharmacy per drug means no saving to show.
-- **A dozen medications is fine.** The list collapses after 4 behind "Show all N
-  medications" (`MEDS_BEFORE_COLLAPSE` in `ResultStage.jsx`), so send everything
-  you have.
-- **snake_case or camelCase both work** — `normalize()` in `api.js` accepts
-  either, so write whatever is natural in Python.
-- If `search_time_ms` is missing, the UI falls back to the measured round trip —
-  which includes network time and will look much slower than Typesense really is.
-- `medications` may also be a plain list of strings (`["Amoxicillin"]`); they'll
-  render as names with no pricing. Useful as a first integration step before
-  GoodRx is hooked up.
-- Results render in the order you send them, except the first one is treated as
-  the top match. The UI does no re-ranking.
-- Non-2xx responses surface as an error message, so a plain HTTP error is fine.
+`normalize()` in `src/lib/api.js` accepts snake_case or camelCase, so write
+whatever is natural in Python.
 
 ---
 
-## Layout
+## If it breaks mid-demo
 
-```
-src/
-├── App.jsx                       # search state machine + takeover threshold
-├── lib/
-│   ├── api.js                    # ← the only file the backend swap touches
-│   └── mockData.js               # dummy conditions + naive keyword matcher
-├── components/
-│   ├── SymptomPills.jsx          # editable/removable symptom pills
-│   ├── SpeedStat.jsx             # "N conditions in X ms" + Typesense mark
-│   ├── ResultStage.jsx           # the full-page answer
-│   ├── MedIcon.jsx               # drawn medication artwork + colour palette
-│   ├── CandidateGrid.jsx         # fallback when nothing scores high enough
-│   └── MedicationRow.jsx         # medication + GoodRx pharmacy pricing
-└── styles.css                    # design tokens, light only
-```
+- **Vite is pinned to port 5173** (`strictPort`). It used to slide to the next
+  free port when 5173 was busy, which then failed CORS against the backend and
+  reported "backend unreachable" — while the backend was fine. It now refuses to
+  start instead, so you find out immediately. If it won't start, an old dev
+  server is still running: `lsof -nP -iTCP:5173 -sTCP:LISTEN`.
+- **The backend accepts any localhost port** (`CORS_ORIGIN_REGEX`), so even a
+  shifted frontend port keeps working.
+- **The error message can tell the two apart.** If the backend is down you get
+  "start it with `npm run api`"; if it's up but the browser blocked the response
+  you get the CORS message naming the origin. It probes with a `no-cors` request
+  to distinguish them.
+- **Nothing is fetched at demo time.** Datasets, embedding model, the Cost Plus
+  catalogue and every price quote are cached after the first run.
 
-`scripts/seed.mjs` is dev-only convenience for loading Typesense; production
-ingestion is the backend's job.
+## Details worth knowing
+
+- **`label` is filtered.** K-Paths rows are `Disease-modifying`, `Palliates` or
+  `Non indications` — the last means the drug *neither treats nor palliates* the
+  disease. All 243 of those rows are dropped in `pharma.py`; showing them as
+  treatment options would be actively wrong.
+- **Confidence is calibrated to this data.** Cosine similarity 0.42–0.92 maps
+  onto 0–1, because a recital of real symptoms scores ~0.85–1.00, a good
+  plain-language description ~0.67, and a vague one ~0.45. A light symptom-
+  coverage term nudges ties. Without the mapping everything reads "99% match".
+- **Disease names are normalized before matching** ("Parkinson Disease" vs
+  "parkinson's disease", "Reflux Disease (GERD)"). Parkinson's went from 0 drugs
+  to 28 on that fix alone.
+- **Summaries require an exact name match.** The looser match is fine for drugs,
+  but it would print psoriatic arthritis's definition under plain "Arthritis".
+  No description beats a wrong one.
+- **Quotes are prefetched at startup**, eight at a time, and cached to disk —
+  one quote takes up to two seconds, so fetching them per search would make the
+  first search for every condition crawl. Writes are behind a lock; without it
+  the parallel prefetch corrupts the cache mid-serialise.
+- **Cost Plus name matching** falls back to a distinctive whole word, since they
+  list salts and combinations ("Abacavir Sulfate", "Amoxicillin / Clavulanate").
+- **Duplicate disease rows** exist in the dataset; results are deduplicated by
+  name before being trimmed to the result limit.
+
+## UI behaviour
+
+- Cost leads: a band under the condition name gives the cheapest option and, in
+  dollars, what you'd save by asking about it instead of the priciest one
+  (`src/lib/cost.js`). It used to print "4.3× more", which named no drug, no
+  amount and no next step.
+- Prices are never summed — a medication list is a set of *options*, not a
+  regimen — and pills are only compared against pills, since 30 tablets and one
+  tube of cream aren't the same purchase.
+- Symptoms are pills: hover strikes one through, click removes it, `+ symptom`
+  adds, `Clear all` resets. Every change re-runs the search.
+- One screen, no page scrolling; long medication lists scroll in their panel.

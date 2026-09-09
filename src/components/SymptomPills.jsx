@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import SuggestionList, { useSymptomSuggest } from './SymptomSuggest.jsx';
 
 /**
  * The symptoms the user entered, as pills. Hovering a pill strikes it through
@@ -16,6 +17,16 @@ export default function SymptomPills({ symptoms, onChange }) {
   }, [adding]);
 
   const remove = (i) => onChange(symptoms.filter((_, idx) => idx !== i));
+
+  const suggest = useSymptomSuggest({
+    value: draft,
+    enabled: adding,
+    onAccept: (text) => {
+      setAdding(false);
+      setDraft('');
+      onChange([...symptoms, text]);
+    },
+  });
 
   const commitAdd = () => {
     const additions = draft
@@ -45,22 +56,30 @@ export default function SymptomPills({ symptoms, onChange }) {
       ))}
 
       {adding ? (
-        <input
-          ref={addRef}
-          className="pill__input"
-          value={draft}
-          size={Math.max(draft.length, 10)}
-          placeholder="add a symptom"
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commitAdd}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commitAdd();
-            if (e.key === 'Escape') {
-              setAdding(false);
-              setDraft('');
-            }
-          }}
-        />
+        <span className="pill__adding">
+          <input
+            ref={addRef}
+            className="pill__input"
+            value={draft}
+            size={Math.max(draft.length, 10)}
+            placeholder="add a symptom"
+            aria-autocomplete="list"
+            aria-controls={suggest.listId}
+            autoComplete="off"
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitAdd}
+            onKeyDown={(e) => {
+              // Let the dropdown claim arrows/enter/escape first.
+              if (suggest.onKeyDown(e)) return;
+              if (e.key === 'Enter') commitAdd();
+              if (e.key === 'Escape') {
+                setAdding(false);
+                setDraft('');
+              }
+            }}
+          />
+          <SuggestionList suggest={suggest} compact />
+        </span>
       ) : (
         <button
           type="button"

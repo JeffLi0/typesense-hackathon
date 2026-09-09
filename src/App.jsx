@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { diagnose, USING_MOCK_DATA } from './lib/api.js';
+import { diagnose, health } from './lib/api.js';
 import SymptomPills from './components/SymptomPills.jsx';
 import SpeedStat, { TypesenseMark } from './components/SpeedStat.jsx';
+import SuggestionList, { useSymptomSuggest } from './components/SymptomSuggest.jsx';
 import ResultStage from './components/ResultStage.jsx';
 import CandidateGrid from './components/CandidateGrid.jsx';
 
@@ -9,11 +10,14 @@ import CandidateGrid from './components/CandidateGrid.jsx';
 // Below it, we show the contenders side by side instead of faking certainty.
 const TAKEOVER_CONFIDENCE = 0.7;
 
+// Chosen because they land on conditions the medication dataset actually
+// covers, so the cost story is on screen in one click. Verified against the
+// live backend — re-check these if the datasets change.
 const EXAMPLES = [
-  ['sore throat', 'fever', 'swollen glands'],
-  ['headache', 'nausea', 'light sensitivity'],
-  ['runny nose', 'sneezing', 'itchy eyes'],
-  ['heartburn', 'chest pain'],
+  ['joint pain', 'morning stiffness', 'swollen joints'],
+  ['tremor', 'slow movement', 'stiffness'],
+  ['itchy scaly skin patches', 'red plaques'],
+  ['frequent urination', 'excessive thirst', 'fatigue'],
 ];
 
 // "sore throat, fever and chills" -> ["sore throat", "fever", "chills"]
@@ -112,7 +116,6 @@ export default function App() {
           {status === 'done' && (
             <SpeedStat count={results.length} searchTimeMs={timing} />
           )}
-          {USING_MOCK_DATA && <span className="tag tag--demo">demo data</span>}
         </div>
       </header>
 
@@ -121,8 +124,11 @@ export default function App() {
 
         {status === 'error' && (
           <div className="notice">
-            <strong>Couldn't reach the backend.</strong>
+            <strong>Search is unavailable.</strong>
             <span>{error}</span>
+            <button type="button" className="notice__retry" onClick={() => run(symptoms)}>
+              Try again
+            </button>
           </div>
         )}
 
@@ -147,7 +153,8 @@ export default function App() {
 
       <footer className="screen__foot">
         <span>
-          Informational only — not a diagnosis. Prices are GoodRx estimates.
+          Informational only — not a diagnosis. Prices from Cost Plus Drugs;
+          other pharmacies will differ.
         </span>
         <TypesenseMark prefix="Search powered by" />
       </footer>
@@ -155,7 +162,32 @@ export default function App() {
   );
 }
 
+// "fever, sore thr" -> ["fever, ", "sore thr"] so the typeahead completes only
+// what's being typed right now.
+function splitTrailing(text) {
+  const at = text.lastIndexOf(',');
+  return at === -1 ? ['', text] : [text.slice(0, at + 1), text.slice(at + 1)];
+}
+
 function Home({ draft, setDraft, onSubmit, onExample }) {
+  const [backend, setBackend] = useState(null);
+  const [head, tail] = splitTrailing(draft);
+
+  const suggest = useSymptomSuggest({
+    value: tail.trimStart(),
+    onAccept: (text) => setDraft(`${head}${head ? ' ' : ''}${text}, `),
+  });
+
+  // One quiet check on load: if the API is down or still building its index,
+  // say so here rather than after the user types.
+  useEffect(() => {
+    let live = true;
+    health().then((h) => live && setBackend(h));
+    return () => {
+      live = false;
+    };
+  }, []);
+
   return (
     <div className="screen screen--home">
       <main className="home">
@@ -170,27 +202,38 @@ function Home({ draft, setDraft, onSubmit, onExample }) {
         </h1>
         <p className="home__sub">
           Describe your symptoms. We'll match the condition, then show what treats
-          it, what each pharmacy near you charges, and where to fill it for less.
+          it and what each option actually costs — so you can ask for the cheaper
+          one.
         </p>
 
         <form
-          className="search"
+          className="searchwrap"
           onSubmit={(e) => {
             e.preventDefault();
+            if (suggest.open && suggest.active >= 0) return;
+            suggest.close();
             onSubmit();
           }}
         >
-          <input
-            className="search__input"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="sore throat, fever, tired for 3 days…"
-            aria-label="Your symptoms"
-            autoFocus
-          />
-          <button className="search__submit" type="submit" disabled={!draft.trim()}>
-            Diagnose
-          </button>
+          <div className="search">
+            <input
+              className="search__input"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={suggest.onKeyDown}
+              onBlur={suggest.close}
+              placeholder="sore throat, fever, tired for 3 days…"
+              aria-label="Your symptoms"
+              aria-autocomplete="list"
+              aria-controls={suggest.listId}
+              autoComplete="off"
+              autoFocus
+            />
+            <button className="search__submit" type="submit" disabled={!draft.trim()}>
+              Diagnose
+            </button>
+          </div>
+          <SuggestionList suggest={suggest} />
         </form>
 
         <div className="examples">
@@ -207,19 +250,26 @@ function Home({ draft, setDraft, onSubmit, onExample }) {
         </div>
 
         <div className="home__claims">
-          <Claim title="The price before the counter">
-            Every medication comes with what nearby pharmacies actually charge,
-            so the cost isn't a surprise when you go to fill it.
+          <Claim title="A real price, not an estimate">
+            Every drug is quoted from Cost Plus Drugs — the actual total they
+            charge, linked to the page you can buy it on.
           </Claim>
-          <Claim title="The same drug, for less">
-            Prices for one prescription can differ by hundreds between pharmacies
-            a mile apart. We show you which one to walk into.
+          <Claim title="The cheaper equivalent">
+            Treatments for the same condition can differ a hundredfold in cost.
+            We rank them, so you know what to ask about.
           </Claim>
           <Claim title="Real data, in milliseconds">
             Conditions and medications are retrieved from an indexed dataset by
             Typesense — matched by search, never invented by a language model.
           </Claim>
         </div>
+
+        {backend && !backend.ok && (
+          <p className="home__warn">
+            {backend.reason ||
+              'Search backend is still building its index. Give it a moment.'}
+          </p>
+        )}
 
         <div className="home__ts">
           <TypesenseMark />

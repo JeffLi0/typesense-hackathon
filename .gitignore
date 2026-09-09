@@ -8,3 +8,11 @@ typesense/data*/
 
 # Generated Vite env with the scoped search key
 .env.local
+
+# Python backend
+.venv/
+__pycache__/
+*.pyc
+
+# NADAC CSV (~90MB) + derived price index; re-downloaded on first run
+data/

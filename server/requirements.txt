@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+typesense
+datasets
+pandas
+requests
