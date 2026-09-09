@@ -1,0 +1,22 @@
+{
+  "name": "typesense-hackathon",
+  "version": "1.0.0",
+  "description": "Symptom checker frontend — symptoms in, likely conditions + medications + GoodRx pricing out. Search powered by Typesense.",
+  "type": "module",
+  "scripts": {
+    "typesense": "./typesense/typesense-server --data-dir=./typesense/data --api-key=xyz --enable-cors",
+    "seed": "node scripts/seed.mjs",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "typesense": "^3.0.6",
+    "vite": "^5.4.11"
+  }
+}

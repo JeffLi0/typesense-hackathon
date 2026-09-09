@@ -1,0 +1,10 @@
+node_modules/
+dist/
+
+# Typesense binary + its data (binary is large; re-download per README)
+typesense/typesense-server
+typesense/typesense-server.md5.txt
+typesense/data*/
+
+# Generated Vite env with the scoped search key
+.env.local
