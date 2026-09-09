@@ -8,6 +8,10 @@ import { money } from '../lib/cost.js';
 export default function CostBand({ cost }) {
   if (!cost) return null;
 
+  // Only worth a slot when it tells you something: a gap in coverage, or enough
+  // options that the count matters.
+  const showCoverage = cost.unpriced > 0 || cost.priced >= 3;
+
   return (
     <div className="costband">
       <div className="costband__stat">
@@ -34,6 +38,7 @@ export default function CostBand({ cost }) {
         </div>
       )}
 
+      {showCoverage && (
       <div className="costband__stat costband__stat--meta">
         <span className="costband__label">Priced options</span>
         <span className="costband__value costband__value--sm">
@@ -46,6 +51,7 @@ export default function CostBand({ cost }) {
             : 'all with live pharmacy pricing'}
         </span>
       </div>
+      )}
     </div>
   );
 }

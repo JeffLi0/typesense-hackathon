@@ -1,11 +1,17 @@
-# Symptom checker (frontend)
+# What's wrong — and what will it cost? (frontend)
 
-Type your symptoms, get one answer: the most likely condition filling the whole
-screen — its known symptoms, the medications that treat it, and where to fill
-them and for how much (GoodRx). No result list to wade through.
+Type your symptoms and get the answer people actually need next: **what
+treating it costs, and how to pay less for it.** One condition fills the screen
+with the cheapest route to treatment, how much the right pharmacy saves you over
+the wrong one, and where to go — not a list of diseases to worry about.
 
 **React + Vite.** Search is powered by **Typesense 30.2**, owned by the Python
 backend.
+
+> **Framing:** this is a cost tool, not a symptom encyclopedia. The condition is
+> how we find the right medications; the price is the product. Anywhere a
+> condition appears — the headline, the "also possible" list, the low-confidence
+> grid — it carries a price with it.
 
 > **Status:** proof of concept. The UI runs on dummy data
 > (`src/lib/mockData.js`) until the backend endpoint exists. Flip one env var to
@@ -50,6 +56,14 @@ key into `.env.local`, merging with whatever is already in there.
 
 ## How the UI behaves
 
+- **Cost leads.** A band under the condition name answers the money question
+  before anything clinical: the cheapest way to treat it, and the biggest saving
+  available from pharmacy choice alone ("You could save $27.58 — 53% off on
+  Oseltamivir"). Cost maths lives in [`src/lib/cost.js`](src/lib/cost.js).
+- **Prices never get summed.** A condition's medication list is a set of
+  *options*, not a regimen — nobody takes all twelve diabetes drugs. So we report
+  a range ("from $4.00, up to $548 depending on what you're prescribed") and the
+  largest single-drug saving, never a total.
 - **One screen, no scrolling.** The viewport is locked; the answer is laid out
   to fit. Long medication lists scroll inside their own panel.
 - **One pharmacy, with a reason.** Rather than listing every price, the UI picks
@@ -167,6 +181,10 @@ Notes for the backend side:
   index and the disease→medication index don't cover the same conditions. Send
   `[]` and the UI explains the gap and leans on `treatments`; don't invent drugs
   to fill it.
+- **`goodrx.pharmacies` is what powers the headline.** The saving figure is the
+  spread between the cheapest and dearest nearby price for the same drug, so the
+  more pharmacies you return per medication, the more the app has to say. One
+  pharmacy per drug means no saving to show.
 - **A dozen medications is fine.** The list collapses after 4 behind "Show all N
   medications" (`MEDS_BEFORE_COLLAPSE` in `ResultStage.jsx`), so send everything
   you have.
